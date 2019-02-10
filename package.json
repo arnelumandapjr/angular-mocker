@@ -1,0 +1,31 @@
+{
+  "name": "angular-mocker",
+  "version": "1.0.0",
+  "description": "a command line tool that generates mocks for your angular pipes, services, directives and components",
+  "main": "lib/mocker.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "rm -rf ./lib && tsc"
+  },
+  "bin": {
+    "mocker": "bin/mocker"
+  },
+  "keywords": [
+    "angular-mocker",
+    "mock",
+    "angular",
+    "jasmine"
+  ],
+  "author": "Arnel Umandap Jr.",
+  "license": "ISC",
+  "dependencies": {
+    "colors": "^1.3.3",
+    "fs-readdir-recursive": "^1.1.0",
+    "minimist": "^1.2.0",
+    "typescript": "^3.3.1"
+  },
+  "devDependencies": {
+    "@types/minimist": "^1.2.0",
+    "@types/node": "^10.12.21"
+  }
+}
