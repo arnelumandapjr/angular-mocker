@@ -50,6 +50,8 @@ export class MockGenerator {
 
   run(): void {
 
+    Logger.log(`\n`, LogLevel.Report);
+
     if (!this.fileNames || this.fileNames.length <= 0) {
       Logger.error(
         `Cannot find files to mock.
@@ -66,12 +68,12 @@ export class MockGenerator {
       this.classDeclarationFound = false;
       ts.forEachChild(sourceFile, this.visitNode.bind(this));
       if (!this.classDeclarationFound) {
-        Logger.error(`No class declaration found in ${this.util.shortenPath(sourceFile.fileName)}.`);
+        Logger.warn(`No class declaration found in ${this.util.shortenPath(sourceFile.fileName)}.`, LogLevel.Verbose);
       }
     });
     this.processMocksWithExtensions();
-    this.logExecutionSummary();
     this.createBarrels();
+    this.logExecutionSummary();
   }
 
   private visitNode(node: ts.Node) {
@@ -110,7 +112,7 @@ export class MockGenerator {
 
       if (!skipIt) {
         fs.writeFileSync(mock.path, accumulatedContent || mock.content);
-        Logger.success(`${mock.mockClassName} is successfully created.`, LogLevel.Verbose);
+        Logger.success(`${mock.mockClassName} is successfully created.`, LogLevel.Report);
       }
       mock.skipped = skipIt;
       this.mocksGenerated[mock.type + 's'].push(mock);
@@ -213,7 +215,7 @@ export class MockGenerator {
       }
       try {
         const stat: fs.Stats = fs.statSync(`${dir}/${file}`);
-        if (stat.isFile() && !supportedExts.some(ext => file.search(ext) >= 0)) {
+        if (stat.isFile() && !supportedExts.some(ext => file.includes(ext))) {
           return false;
         }
         return true;
@@ -235,19 +237,21 @@ export class MockGenerator {
     }
     const mocksWithExtends = this.mocksGenerated.services.filter(mock => !!mock.extends);
     mocksWithExtends.forEach(mock => {
-      const methods = this.mergeMethodWithParent(mock, mock.methods);
-      // de-dup methods
-      methods.filter((value, index, self) => {
-        return self.indexOf(value) === index;
-      });
+      const { skipIt, accumulatedContent } = this.mockFileExistCheck(mock);
 
-      mock.methods = methods;
+      if (!skipIt) {
+        const methods = this.mergeMethodWithParent(mock, mock.methods);
+        // de-dup methods
+        methods.filter((value, index, self) => {
+          return self.indexOf(value) === index;
+        });
+        mock.methods = methods;  
+      }
+
       mock.content = this.createMockContent(mock, undefined, mock.methods);
-
-      const { skipIt, accumulatedContent} = this.mockFileExistCheck(mock);
       if (!skipIt) {
         fs.writeFileSync(mock.path, accumulatedContent || mock.content);
-        Logger.success(`${mock.mockClassName} is successfully created.`, LogLevel.Verbose);
+        Logger.success(`${mock.mockClassName} is successfully created.`, LogLevel.Report);
       }
       mock.skipped = skipIt;
     });
@@ -276,8 +280,6 @@ export class MockGenerator {
     }
     const components: any = {}, directives: any = {}, services: any =  {}, pipes: any = {};
 
-    Logger.log(`\n****** Execution Summary ******\n`, LogLevel.Report);
-
     components.skipped = this.mocksGenerated.components.filter(mock => mock.skipped).length,
     directives.skipped = this.mocksGenerated.directives.filter(mock => mock.skipped).length,
     services.skipped = this.mocksGenerated.services.filter(mock => mock.skipped).length,
@@ -287,10 +289,15 @@ export class MockGenerator {
     services.mocked = this.mocksGenerated.services.length - services.skipped;
     pipes.mocked = this.mocksGenerated.pipes.length - pipes.skipped;
 
+    Logger.log(`\n****** Execution Summary ******\n`, LogLevel.Report);
+
     components.skipped && Logger.warn(`${components.skipped} component(s) is/are skipped due to already existing mocks.`, LogLevel.Report);
     directives.skipped && Logger.warn(`${directives.skipped} directives(s) is/are skipped due to already existing mocks.`, LogLevel.Report);
     services.skipped && Logger.warn(`${services.skipped} services(s) is/are skipped due to already existing mocks.`, LogLevel.Report);
     pipes.skipped && Logger.warn(`${pipes.skipped} pipes(s) is/are skipped due to already existing mocks.`, LogLevel.Report);
+
+    Logger.log(`\n`, LogLevel.Report);
+
     components.mocked && Logger.success(`${components.mocked} component(s) is/are mocked.`, LogLevel.Report);
     directives.mocked && Logger.success(`${directives.mocked} directives(s) is/are mocked.`, LogLevel.Report);
     services.mocked && Logger.success(`${services.mocked} services(s) is/are mocked.`, LogLevel.Report);

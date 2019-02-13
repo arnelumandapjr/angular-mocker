@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { Mocks, Mock } from './models';
-import { Logger } from './logger';
+import { Logger, LogLevel } from './logger';
 
 export class Barrel {
 
@@ -113,6 +113,6 @@ export class Barrel {
     const barrelContent = `${strImports2}\n${strImports}\n\n${strClass}\n`;
 
     fs.writeFileSync(barrelPath, barrelContent);
-    Logger.success(`${barrelPath} successfully created.`);
+    Logger.success(`${barrelPath} successfully created.`, LogLevel.Report);
   }
 }
