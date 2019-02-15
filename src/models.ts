@@ -12,13 +12,16 @@ export interface Mock {
   className: string;
   mockClassName: string;
   skipped: boolean;
-  extends?: string;
-  methods?: string[];
 }
 
+export interface MockService extends Mock {
+  extends?: string;
+  methods: string[];
+  provideAsClass: boolean;
+}
 export interface Mocks {
   components: Mock[];
   directives: Mock[];
   pipes: Mock[];
-  services: Mock[];
+  services: MockService[];
 }

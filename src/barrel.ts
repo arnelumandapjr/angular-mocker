@@ -1,12 +1,17 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { Mocks, Mock } from './models';
+import { Mocks, Mock, MockService } from './models';
 import { Logger, LogLevel } from './logger';
+import { Util } from './util';
 
 export class Barrel {
 
-  constructor(private mocksGenerated: Mocks, private options: any) {}
+  constructor(
+    private mocksGenerated: Mocks,
+    private options: any,
+    private util = new Util()
+  ) {}
 
   create() {
     if (!this.options.appDir) {
@@ -62,7 +67,7 @@ export class Barrel {
     }
     const indexPath = path.join(barrelBasePath, 'index.ts');
     fs.writeFileSync(indexPath, indexContent);
-    Logger.success(`${indexPath} successfully created.`);
+    Logger.success(`${this.util.shortenPath(indexPath)} is successfully created.`);
   }
 
   writeBarrel(mocks: Mock[], basePath: string, barrelFileName: string, constName) {
@@ -87,14 +92,14 @@ export class Barrel {
     const barrelContent = `${strImports}\n\n${strClass}\n\n${strExports}`;
 
     fs.writeFileSync(barrelPath, barrelContent);
-    Logger.success(`${barrelPath} successfully created.`);
+    Logger.success(`${this.util.shortenPath(barrelPath)} is successfully created.`);
   }
 
-  writeServiceProviders(mocks: Mock[], basePath: string) {
+  writeServiceProviders(mocks: MockService[], basePath: string) {
     const barrelPath = path.join(basePath, 'service-providers.mock.ts');
     const arrClass: string[] = [];
     let strImports = '', strImports2 = '',
-        strClass = `export const ServiceProviders = [\n`;
+        strClass = `export const MockServiceProviders = [\n`;
 
     mocks.forEach(mock => {
       if (arrClass.indexOf(mock.mockClassName) > 0) {
@@ -104,15 +109,16 @@ export class Barrel {
       let mockPath = path.relative(basePath, mock.path);
       mockPath = mockPath.replace('.ts', '');
       const classPath = mockPath.replace('.mock', '');
+      const provideAs = mock.provideAsClass ? 'useClass' : 'useValue';
       strImports += `import { ${mock.mockClassName} } from '${mockPath}';\n`;
       strImports2 += `import { ${mock.className} } from '${classPath}';\n`;
-      arrClass.push(`{ provide: ${mock.className}, useValue: ${mock.mockClassName} }`);
+      arrClass.push(`{ provide: ${mock.className}, ${provideAs}: ${mock.mockClassName} }`);
     });
     strClass += `  ${arrClass.join(`,\n  `)}\n];`;
 
     const barrelContent = `${strImports2}\n${strImports}\n\n${strClass}\n`;
 
     fs.writeFileSync(barrelPath, barrelContent);
-    Logger.success(`${barrelPath} successfully created.`, LogLevel.Report);
+    Logger.success(`${this.util.shortenPath(barrelPath)} is successfully created.`, LogLevel.Report);
   }
 }

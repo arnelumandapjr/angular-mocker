@@ -93,8 +93,8 @@ export class MockGenerator {
     if (mock) {
       let skipIt = false;
       let accumulatedContent = '';
-      // skip when mock extends something, this will be handle separately in this.processMocksWithExtensions() method
-      if (mock.extends) {
+      // skip when mock extends something, this will be handled separately in this.processMocksWithExtensions() method
+      if (this.util.isService(mock) && mock.extends) {
         if (this.options.appDir) {
           skipIt = true;
         } else {
@@ -105,9 +105,9 @@ export class MockGenerator {
       }
 
       if (!skipIt) {
-        const result: any = this.mockFileExistCheck(mock);
+        const result: any = this.mockExistCheck(mock);
         skipIt = result.skipIt;
-        accumulatedContent = result.accumulatedContent;
+        accumulatedContent = this.handleExistingMock(mock, result.isInContent, result.existingContent);
       }
 
       if (!skipIt) {
@@ -119,29 +119,22 @@ export class MockGenerator {
     }
   }
 
-  private mockFileExistCheck(mock: Mock) {
-    let skipIt = false;
-    let accumulatedContent = '';
+  private mockExistCheck(mock: Mock) {
+    let skipIt = false, 
+        isInContent: RegExpExecArray = null,
+        existingContent = '';
+
     if (fs.existsSync(mock.path)) {
-      const existingContent = fs.readFileSync(mock.path, 'utf8');
-      const isInContent = new RegExp(`export(\\s)+(const|class)(\\s)+${mock.mockClassName}(\\s)+`, 'm').test(existingContent);
-
-      if (!isInContent) {
-        accumulatedContent = existingContent + '\n' + mock.content;
-      }
-
-      if (isInContent && this.options.force) {
-        accumulatedContent = this.mocksGenerated[`${mock.type}s`]
-          .filter(m => m.path === mock.path)
-          .reduce((allContent, curMock) => {
-            if (curMock.content) {
-              allContent += `${curMock.content}\n`;
-            }
-            return allContent;
-          }, '');
-      }
+      const isInContentRegexp = new RegExp(`(?<!//.*)(?<!/\\*[^\\*/]*)export\\s+(const|class)\\s+${mock.mockClassName}\\s+`, 'm');
+      existingContent = fs.readFileSync(mock.path, 'utf8');
+      isInContent = isInContentRegexp.exec(existingContent);
 
       if (isInContent && !this.options.force) {
+
+        if (this.util.isService(mock)) {
+          mock.provideAsClass = isInContent[1] === 'class';
+        }
+
         skipIt = true;
         Logger.warn(`Skipped creating ${mock.mockClassName}. Mock already exists.`, LogLevel.Verbose);
       }
@@ -149,8 +142,29 @@ export class MockGenerator {
     }
     return {
       skipIt: skipIt,
-      accumulatedContent: accumulatedContent
+      isInContent: !!isInContent,
+      existingContent: existingContent
     };
+  }
+
+  private handleExistingMock(mock: Mock, isInContent: boolean, existingContent: string) {
+    let accumulatedContent = '';
+
+    if (!isInContent) {
+      accumulatedContent = existingContent + '\n' + mock.content;
+    }
+
+    if (isInContent && this.options.force) {
+      accumulatedContent = this.mocksGenerated[`${mock.type}s`]
+        .filter(m => m.path === mock.path)
+        .reduce((allContent, curMock) => {
+          if (curMock.content) {
+            allContent += `${curMock.content}\n`;
+          }
+          return allContent;
+        }, '');
+    }
+    return accumulatedContent;
   }
 
   private createMock(node: ts.Node): Mock {
@@ -161,7 +175,7 @@ export class MockGenerator {
     mock.type = this.getMockType(mock.path);
 
     const methods = [];
-    if (mock.type === MockTypes.Service) {
+    if (this.util.isService(mock)) {
       ts.forEachChild(node, n => {
         if (ts.isHeritageClause(n) &&  n.getText().search('extends ') >= 0) {
           mock.extends = 'Mock' +  n.getText().replace('extends ', '');
@@ -169,6 +183,7 @@ export class MockGenerator {
         ts.isMethodDeclaration(n) && methods.push(n.name.getText());
       });
       mock.methods = methods;
+      mock.provideAsClass = false; // will only be true, if mock is existing in a file and it is exported as a class
     }
     mock.content = this.createMockContent(mock, node, methods);
 
@@ -237,7 +252,7 @@ export class MockGenerator {
     }
     const mocksWithExtends = this.mocksGenerated.services.filter(mock => !!mock.extends);
     mocksWithExtends.forEach(mock => {
-      const { skipIt, accumulatedContent } = this.mockFileExistCheck(mock);
+      const { skipIt, isInContent, existingContent } = this.mockExistCheck(mock);
 
       if (!skipIt) {
         const methods = this.mergeMethodWithParent(mock, mock.methods);
@@ -250,6 +265,7 @@ export class MockGenerator {
 
       mock.content = this.createMockContent(mock, undefined, mock.methods);
       if (!skipIt) {
+        const accumulatedContent = this.handleExistingMock(mock, isInContent, existingContent);
         fs.writeFileSync(mock.path, accumulatedContent || mock.content);
         Logger.success(`${mock.mockClassName} is successfully created.`, LogLevel.Report);
       }
