@@ -19,7 +19,7 @@ export class Logger {
     this.log('WARN'.bgYellow+` ${message}`, level);
   }
   static error(message: string, level: LogLevel = LogLevel.Report) {
-    this.log('ERROR'.bgRed+` ${message}`, level);
+    this.log(`ERROR ${message}`.red, level);
   }
 
   static log(message: string, level: LogLevel = LogLevel.Debug) {
