@@ -2,7 +2,7 @@ import * as ts from 'typescript';
 import * as fs from 'fs';
 import * as minimist from 'minimist';
 import * as path from 'path';
-import readdir = require('fs-readdir-recursive');
+import * as readdir from 'fs-readdir-recursive';
 
 import { Logger, LogLevel } from './logger';
 import { Barrel } from './barrel';
