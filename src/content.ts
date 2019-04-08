@@ -1,4 +1,4 @@
-import { Logger, LogLevel } from './logger';
+import { Logger } from './logger';
 import { Util } from './util';
 
 export class Content {
@@ -59,7 +59,7 @@ export class Content {
     const selectorMatch = selectorRegexp.exec(text);
     const selector = selectorMatch && selectorMatch[1];
     if (!selector) {
-      Logger.warn(`No selector found in ${this.util.shortenPath(fileName)}`, LogLevel.Report);
+      Logger.warn(`No selector found in ${this.util.shortenPath(fileName)}`);
     }
     return selector;
   }
@@ -69,7 +69,7 @@ export class Content {
     const pipeNameMatch = pipeNameRegexp.exec(text);
     const pipeName = pipeNameMatch && pipeNameMatch[1];
     if (!pipeName) {
-      Logger.warn(`No pipe name found in ${this.util.shortenPath(fileName)}`, LogLevel.Report);
+      Logger.warn(`No pipe name found in ${this.util.shortenPath(fileName)}`);
     }
     return pipeName;
   }

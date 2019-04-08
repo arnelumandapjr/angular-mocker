@@ -5,10 +5,10 @@
     "rootDir": "./src",
     "sourceMap": true,
     "declaration": true,
-    "declarationMap": true,
+    "declarationMap": false,
     "moduleResolution": "node",
-    "noUnusedLocals": true,
-    "target": "es5",
+    "noUnusedLocals": false,
+    "target": "es6",
     "typeRoots": [
       "node_modules/@types"
     ],

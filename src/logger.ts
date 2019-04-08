@@ -10,16 +10,16 @@ export class Logger {
   static logLevel = LogLevel.Debug;
 
   static debug(message: string, level: LogLevel = LogLevel.Debug) {
-    this.log(`[DEBUG] ${message}`.blue, level);
+    this.log('DEBUG'.bgBlue+` ${message}`, level);
   }
   static success(message: string, level: LogLevel = LogLevel.Report) {
-    this.log(`[SUCCESS] ${message}`.green, level);
+    this.log('SUCCESS'.bgGreen+` ${message}`, level);
   }
   static warn(message: string, level: LogLevel = LogLevel.Verbose) {
-    this.log(`[WARN] ${message}`.yellow, level);
+    this.log('WARN'.bgYellow+` ${message}`, level);
   }
   static error(message: string, level: LogLevel = LogLevel.Report) {
-    this.log(`[ERROR] ${message}`.red, level);
+    this.log(`ERROR ${message}`.red, level);
   }
 
   static log(message: string, level: LogLevel = LogLevel.Debug) {

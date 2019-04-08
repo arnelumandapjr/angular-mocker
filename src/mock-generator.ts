@@ -2,13 +2,13 @@ import * as ts from 'typescript';
 import * as fs from 'fs';
 import * as minimist from 'minimist';
 import * as path from 'path';
-import readdir = require('fs-readdir-recursive');
+import * as readdir from 'fs-readdir-recursive';
 
 import { Logger, LogLevel } from './logger';
 import { Barrel } from './barrel';
 import { Content } from './content';
 import { Util } from './util';
-import { Mocks, MockTypes, Mock } from './models';
+import { Mocks, Mock, MockService } from './models';
 
 const compilerOptions: ts.CompilerOptions = {
   target: ts.ScriptTarget.ES5,
@@ -50,6 +50,8 @@ export class MockGenerator {
 
   run(): void {
 
+    Logger.log(`\n`, LogLevel.Report);
+
     if (!this.fileNames || this.fileNames.length <= 0) {
       Logger.error(
         `Cannot find files to mock.
@@ -66,12 +68,12 @@ export class MockGenerator {
       this.classDeclarationFound = false;
       ts.forEachChild(sourceFile, this.visitNode.bind(this));
       if (!this.classDeclarationFound) {
-        Logger.error(`No class declaration found in ${this.util.shortenPath(sourceFile.fileName)}.`);
+        Logger.warn(`No class declaration found in ${this.util.shortenPath(sourceFile.fileName)}.`, LogLevel.Verbose);
       }
     });
-    this.processMocksWithExtensions();
-    this.logExecutionSummary();
+    this.processMockServicesWithBaseClass();
     this.createBarrels();
+    this.logExecutionSummary();
   }
 
   private visitNode(node: ts.Node) {
@@ -82,124 +84,154 @@ export class MockGenerator {
 
     this.classDeclarationFound = true;
 
-    let mock: Mock;
     try {
+      let mock: Mock;
       mock = this.createMock(node);
+  
+      if (!mock.skipped) {
+        fs.writeFileSync(mock.path, mock.content);
+        Logger.success(`${mock.mockClassName} is successfully ${mock.saveMode}d.`, LogLevel.Report);
+      }
+      this.mocksGenerated[mock.type + 's'].push(mock);
+
     } catch (e) {
       Logger.error(e.message);
     }
-    if (mock) {
-      let skipIt = false;
-      let accumulatedContent = '';
-      // skip when mock extends something, this will be handle separately in this.processMocksWithExtensions() method
-      if (mock.extends) {
-        if (this.options.appDir) {
-          skipIt = true;
-        } else {
-          // handling of extends for mocking per file is not yet supported
-          Logger.warn(`${this.util.shortenPath(mock.path)} won't have methods from it's baseClass.
-\tYou have to mock it using --app-dir to get it's parent's methods.`);
-        }
-      }
-
-      if (!skipIt) {
-        const result: any = this.mockFileExistCheck(mock);
-        skipIt = result.skipIt;
-        accumulatedContent = result.accumulatedContent;
-      }
-
-      if (!skipIt) {
-        fs.writeFileSync(mock.path, accumulatedContent || mock.content);
-        Logger.success(`${mock.mockClassName} is successfully created.`, LogLevel.Verbose);
-      }
-      mock.skipped = skipIt;
-      this.mocksGenerated[mock.type + 's'].push(mock);
-    }
   }
 
-  private mockFileExistCheck(mock: Mock) {
-    let skipIt = false;
-    let accumulatedContent = '';
-    if (fs.existsSync(mock.path)) {
-      const existingContent = fs.readFileSync(mock.path, 'utf8');
-      const isInContent = new RegExp(`export(\\s)+(const|class)(\\s)+${mock.mockClassName}(\\s)+`, 'm').test(existingContent);
 
-      if (!isInContent) {
-        accumulatedContent = existingContent + '\n' + mock.content;
-      }
-
-      if (isInContent && this.options.force) {
-        accumulatedContent = this.mocksGenerated[`${mock.type}s`]
-          .filter(m => m.path === mock.path)
-          .reduce((allContent, curMock) => {
-            if (curMock.content) {
-              allContent += `${curMock.content}\n`;
-            }
-            return allContent;
-          }, '');
-      }
-
-      if (isInContent && !this.options.force) {
-        skipIt = true;
-        Logger.warn(`Skipped creating ${mock.mockClassName}. Mock already exists.`, LogLevel.Verbose);
-      }
-
-    }
-    return {
-      skipIt: skipIt,
-      accumulatedContent: accumulatedContent
-    };
-  }
 
   private createMock(node: ts.Node): Mock {
     const mock = {} as Mock;
     mock.className = (<ts.ClassDeclaration>node).name.getText();
     mock.mockClassName = `Mock${mock.className}`;
     mock.path = node.getSourceFile().fileName.replace('.ts', '.mock.ts');
-    mock.type = this.getMockType(mock.path);
+    mock.type = this.util.resolveMockType(mock.path);
+    mock.saveMode = 'create';
 
-    const methods = [];
-    if (mock.type === MockTypes.Service) {
-      ts.forEachChild(node, n => {
-        if (ts.isHeritageClause(n) &&  n.getText().search('extends ') >= 0) {
-          mock.extends = 'Mock' +  n.getText().replace('extends ', '');
-        }
-        ts.isMethodDeclaration(n) && methods.push(n.name.getText());
-      });
-      mock.methods = methods;
+    if (this.util.isDirective(mock) || this.util.isComponent(mock)) {
+      mock.selector = this.content.extractSelector(node.getText(), node.getSourceFile().fileName);
+    } else if (this.util.isPipe(mock)) {
+      mock.pipeName = this.content.extractPipeName(node.getText(), node.getSourceFile().fileName);
+    } else if (this.util.isService(mock)) {
+      this.setMockServiceData(mock, node);
+      // mock service with base class needs to be processed separately in processMockServicesWithBaseClass() method call
+      // wherein its base class mock data are already generated/collected
+      mock.skipped = !!(mock.extends && this.options.appDir);
+      if (mock.skipped) {
+        return mock;
+      }
     }
-    mock.content = this.createMockContent(mock, node, methods);
+
+    const { isMockInExistingContent, existingContent, existingMockExportType } = this.checkExistingContent(mock);
+
+    if (isMockInExistingContent && !this.options.force && !this.util.isService(mock)) {
+      mock.skipped = true;
+      Logger.warn(`Skipped creating ${mock.mockClassName}. Mock already exists.`, LogLevel.Verbose);
+      return mock;
+    }
+
+    if (existingContent) {
+      mock.content = this.handleExistingContent(mock, isMockInExistingContent, existingContent);  
+      if (this.util.isService(mock)) {
+        mock.provideAsClass = existingMockExportType === 'class';
+      }
+    } else {
+      mock.content = this.createMockContent(mock);
+    }
 
     return mock;
   }
 
-  private getMockType(mockPath): MockTypes {
-    if (/.*component\.mock\.ts$/.test(mockPath)) {
-      return MockTypes.Component;
-    } else if (/.*directive\.mock\.ts$/.test(mockPath)) {
-      return MockTypes.Directive;
-    } else if (/.*pipe\.mock\.ts$/.test(mockPath)) {
-      return MockTypes.Pipe;
-    } else if (/.*service\.mock\.ts$/.test(mockPath)) {
-      return MockTypes.Service;
+  private checkExistingContent(mock: Mock) {
+    let matches: RegExpExecArray = null,
+        existingContent = '';
+
+    if (fs.existsSync(mock.path)) {
+      const isInContentRegexp = new RegExp(`(?<!//.*)(?<!/\\*[^\\*/]*)export\\s+(const|class)\\s+${mock.mockClassName}\\s+`, 'm');
+      existingContent = fs.readFileSync(mock.path, 'utf8');
+      matches = isInContentRegexp.exec(existingContent);
+    }
+
+    return {
+      existingContent: existingContent,
+      isMockInExistingContent: !!matches,
+      existingMockExportType: matches ? matches[1] : ''
+    };
+  }
+
+  private handleExistingContent(mock: Mock, isMockInExistingContent: boolean, existingContent: string) {
+    if (this.util.isService(mock) && isMockInExistingContent && !this.options.force) {
+      return this.appendNewMethods(mock, existingContent);
+    } else if (isMockInExistingContent && this.options.force) {
+      return this.combineMockContentsOfSamePath(mock);
+    } else if (!isMockInExistingContent) {
+      return existingContent + '\n' + this.createMockContent(mock);
+    } else {
+      Logger.error(`Unhandled existing content scenario. \nisMockINExistingContent: ${isMockInExistingContent}\nMock: ${JSON.stringify(mock, null, 4)}`);
     }
   }
 
-  private createMockContent(mock: Mock, node?: ts.Node, methods?: string[]): string {
-    switch (mock.type) {
-      case MockTypes.Component:
-        return this.content.forComponent(mock.mockClassName, this.content.extractSelector(node.getText(), node.getSourceFile().fileName));
-      case MockTypes.Directive:
-        return this.content.forDirective(mock.mockClassName, this.content.extractSelector(node.getText(), node.getSourceFile().fileName));
-      case MockTypes.Pipe:
-        return this.content.forPipe(mock.mockClassName, this.content.extractPipeName(node.getText(), node.getSourceFile().fileName));
-      case MockTypes.Service:
-        return this.content.forService(mock.mockClassName, methods);
-      default:
-        throw new Error(
-          `Unknown file extension. Make sure the file to mock is a pipe, component, directive or service.
+  private combineMockContentsOfSamePath(mock: Mock) {
+    return this.mocksGenerated[`${mock.type}s`]
+                  .filter(m => m.path === mock.path)
+                  .reduce((allContent, curMock) => {
+                    const content = this.createMockContent(curMock)
+                    if (curMock.content) {
+                      allContent += `${content}\n`;
+                    }
+                    return allContent;
+                  }, '');
+  }
+
+  private appendNewMethods(mock: MockService, existingContent: string) {
+    const insertPos = this.util.getMatchIndex(existingContent, new RegExp('(?<=export\\s+const\\s+' + mock.mockClassName + '\\s+=\\s+jasmine\\.createSpyObj\\(\'' + mock.mockClassName + '\',\\s+\\[)\\s+[\'"]{1}\\w+[\'"]{1},'));
+    const newMethods = mock.methods.filter(method => !existingContent.includes(method));
+
+    if (insertPos === -1 || newMethods.length === 0) {
+      mock.skipped = true;
+      Logger.warn(`Skipped creating ${mock.mockClassName}. Mock already exists.`, LogLevel.Verbose);
+      return '';
+    } else {
+      mock.saveMode = 'update';
+      const strNewMethods = `\n  '${newMethods.join(`',\n  '`)}',`;
+      return this.util.strInsert(existingContent, strNewMethods, insertPos);
+    }
+
+  }
+
+  private setMockServiceData(mock: MockService, node: ts.Node) {
+    const methods = [];
+    ts.forEachChild(node, n => {
+      if (ts.isHeritageClause(n) &&  n.getText().search('extends ') >= 0) {
+        mock.extends = 'Mock' +  n.getText().replace('extends ', '');
+        if (!this.options.appDir) {
+          // for now, if mock is not generated in app wide mode using --app-dir option, base classes for service is not supported
+          Logger.warn(`${this.util.shortenPath(mock.path)} won't have methods from it's baseClass.
+\tYou have to mock it using --app-dir to get it's parent's methods.`);
+        }
+      }
+      ts.isMethodDeclaration(n) && methods.push(n.name.getText());
+    });
+    mock.methods = methods;
+    // will only be true, if mock service is found in existing file and it is exported as a class
+    mock.provideAsClass = false;
+  }
+
+  private createMockContent(mock: Mock): string {
+    if (this.util.isComponent(mock)) {
+      return this.content.forComponent(mock.mockClassName, mock.selector);
+    } else if (this.util.isDirective(mock)) {
+      return this.content.forDirective(mock.mockClassName, mock.selector);
+    } else if (this.util.isPipe(mock)) {
+      return this.content.forPipe(mock.mockClassName, mock.pipeName);
+    } else if (this.util.isService(mock)) {
+      return this.content.forService(mock.mockClassName, mock.methods);
+    } else {
+      throw new Error(
+        `Unknown file extension. Make sure the file to mock is a pipe, component, directive or service.
 \tAlso make sure that you follow angular style guide for filenames i.e. *.component.ts | *.directives.ts | *.pipe.ts | *.service.ts`
-        );
+      );
     }
   }
 
@@ -213,7 +245,7 @@ export class MockGenerator {
       }
       try {
         const stat: fs.Stats = fs.statSync(`${dir}/${file}`);
-        if (stat.isFile() && !supportedExts.some(ext => file.search(ext) >= 0)) {
+        if (stat.isFile() && !supportedExts.some(ext => file.includes(ext))) {
           return false;
         }
         return true;
@@ -228,28 +260,36 @@ export class MockGenerator {
     return fileNames;
   }
 
-  private processMocksWithExtensions() {
+  private processMockServicesWithBaseClass() {
+    // only applicable if generating for the whole application
     if (!this.options.appDir) {
-      // only applicable if generating for the whole application
       return;
     }
+
     const mocksWithExtends = this.mocksGenerated.services.filter(mock => !!mock.extends);
     mocksWithExtends.forEach(mock => {
+
+      const { isMockInExistingContent, existingContent, existingMockExportType } = this.checkExistingContent(mock);
+      
       const methods = this.mergeMethodWithParent(mock, mock.methods);
       // de-dup methods
       methods.filter((value, index, self) => {
         return self.indexOf(value) === index;
       });
-
       mock.methods = methods;
-      mock.content = this.createMockContent(mock, undefined, mock.methods);
+      mock.provideAsClass = existingMockExportType === 'class';
+      mock.skipped = false;
 
-      const { skipIt, accumulatedContent} = this.mockFileExistCheck(mock);
-      if (!skipIt) {
-        fs.writeFileSync(mock.path, accumulatedContent || mock.content);
-        Logger.success(`${mock.mockClassName} is successfully created.`, LogLevel.Verbose);
+      if (existingContent) {
+        mock.content = this.handleExistingContent(mock, isMockInExistingContent, existingContent)
+      } else {
+        mock.content = this.createMockContent(mock);
       }
-      mock.skipped = skipIt;
+
+      if (!mock.skipped) {
+        fs.writeFileSync(mock.path, mock.content);
+        Logger.success(`${mock.mockClassName} is successfully created.`, LogLevel.Report);  
+      }
     });
   }
 
@@ -276,21 +316,24 @@ export class MockGenerator {
     }
     const components: any = {}, directives: any = {}, services: any =  {}, pipes: any = {};
 
+    components.skips = this.mocksGenerated.components.filter(mock => mock.skipped).length,
+    directives.skips = this.mocksGenerated.directives.filter(mock => mock.skipped).length,
+    services.skips = this.mocksGenerated.services.filter(mock => mock.skipped).length,
+    pipes.skips = this.mocksGenerated.pipes.filter(mock => mock.skipped).length,
+    components.mocked = this.mocksGenerated.components.length - components.skips;
+    directives.mocked = this.mocksGenerated.directives.length - directives.skips;
+    services.mocked = this.mocksGenerated.services.length - services.skips;
+    pipes.mocked = this.mocksGenerated.pipes.length - pipes.skips;
+
     Logger.log(`\n****** Execution Summary ******\n`, LogLevel.Report);
 
-    components.skipped = this.mocksGenerated.components.filter(mock => mock.skipped).length,
-    directives.skipped = this.mocksGenerated.directives.filter(mock => mock.skipped).length,
-    services.skipped = this.mocksGenerated.services.filter(mock => mock.skipped).length,
-    pipes.skipped = this.mocksGenerated.pipes.filter(mock => mock.skipped).length,
-    components.mocked = this.mocksGenerated.components.length - components.skipped;
-    directives.mocked = this.mocksGenerated.directives.length - directives.skipped;
-    services.mocked = this.mocksGenerated.services.length - services.skipped;
-    pipes.mocked = this.mocksGenerated.pipes.length - pipes.skipped;
+    components.skips && Logger.warn(`${components.skips} component(s) is/are skip due to already existing mocks.`, LogLevel.Report);
+    directives.skips && Logger.warn(`${directives.skips} directives(s) is/are skip due to already existing mocks.`, LogLevel.Report);
+    services.skips && Logger.warn(`${services.skips} services(s) is/are skip due to already existing mocks.`, LogLevel.Report);
+    pipes.skips && Logger.warn(`${pipes.skips} pipes(s) is/are skip due to already existing mocks.`, LogLevel.Report);
 
-    components.skipped && Logger.warn(`${components.skipped} component(s) is/are skipped due to already existing mocks.`, LogLevel.Report);
-    directives.skipped && Logger.warn(`${directives.skipped} directives(s) is/are skipped due to already existing mocks.`, LogLevel.Report);
-    services.skipped && Logger.warn(`${services.skipped} services(s) is/are skipped due to already existing mocks.`, LogLevel.Report);
-    pipes.skipped && Logger.warn(`${pipes.skipped} pipes(s) is/are skipped due to already existing mocks.`, LogLevel.Report);
+    Logger.log(`\n`, LogLevel.Report);
+
     components.mocked && Logger.success(`${components.mocked} component(s) is/are mocked.`, LogLevel.Report);
     directives.mocked && Logger.success(`${directives.mocked} directives(s) is/are mocked.`, LogLevel.Report);
     services.mocked && Logger.success(`${services.mocked} services(s) is/are mocked.`, LogLevel.Report);
