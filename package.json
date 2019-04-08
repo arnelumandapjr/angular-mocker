@@ -6,7 +6,8 @@
   "repository": "github:arnelumandapjr/angular-mocker",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "build": "rm -rf ./lib && tsc"
+    "build": "rm -rf ./lib && tsc",
+    "version": "npm run build"
   },
   "bin": {
     "mocker": "bin/mocker"
