@@ -47,7 +47,7 @@ export class Barrel {
 
     const indexPath = path.join(this.barrelBasePath, 'index.ts');
     let indexContent: string;
-    if (fs.existsSync(indexPath)) {
+    if (fs.existsSync(indexPath) && !this.options.refreshBarrel) {
       indexContent = fs.readFileSync(indexPath, 'utf8');
       indexExports = indexExports.filter(strExport => !indexContent.includes(strExport));
       if (indexExports.length === 0) {
@@ -66,7 +66,7 @@ export class Barrel {
 
   writeBarrel(mocks: Mock[], barrelFileName: string, mockArrayName: string) {
     const barrelPath = path.join(this.barrelBasePath, barrelFileName);
-    if (fs.existsSync(barrelPath)) {
+    if (fs.existsSync(barrelPath) && !this.options.refreshBarrel) {
       this.updateBarrel(mocks, barrelPath, mockArrayName);
       return;
     }
