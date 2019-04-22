@@ -8,7 +8,7 @@
     "declarationMap": false,
     "moduleResolution": "node",
     "noUnusedLocals": false,
-    "target": "es6",
+    "target": "es5",
     "typeRoots": [
       "node_modules/@types"
     ],
