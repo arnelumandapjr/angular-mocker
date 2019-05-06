@@ -1,6 +1,6 @@
 {
   "name": "angular-mocker",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "a command line tool that generates mocks for your angular pipes, services, directives and components",
   "main": "lib/mocker.js",
   "repository": "github:arnelumandapjr/angular-mocker",
