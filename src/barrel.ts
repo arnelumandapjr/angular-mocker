@@ -116,7 +116,7 @@ export class Barrel {
         // skip duplicate mocks
         return;
       }
-      let mockPath = path.relative(this.barrelBasePath, mock.path).replace('.ts', '').replace('\\', '/');
+      let mockPath = path.relative(this.barrelBasePath, mock.path).replace('.ts', '').replace(/\\/g, '/');
       strImports += `import { ${mock.mockClassName} } from '${mockPath}';\n`;
       strExports += `export * from '${mockPath}';\n`;
       mockClasses.push(mock.mockClassName);
@@ -184,7 +184,7 @@ export class Barrel {
         // skip duplicate mocks
         return;
       }
-      let mockPath = path.relative(this.barrelBasePath, mock.path).replace('.ts', '').replace('\\', '/');
+      let mockPath = path.relative(this.barrelBasePath, mock.path).replace('.ts', '').replace(/\\/g, '/')
       const classPath = mockPath.replace('.mock', '');
       const provideAs = mock.provideAsClass ? 'useClass' : 'useValue';
       strImports += `import { ${mock.mockClassName} } from '${mockPath}';\n`;

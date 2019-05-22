@@ -316,10 +316,10 @@ export class MockGenerator {
     }
     const components: any = {}, directives: any = {}, services: any =  {}, pipes: any = {};
 
-    components.skips = this.mocksGenerated.components.filter(mock => mock.skipped).length,
-    directives.skips = this.mocksGenerated.directives.filter(mock => mock.skipped).length,
-    services.skips = this.mocksGenerated.services.filter(mock => mock.skipped).length,
-    pipes.skips = this.mocksGenerated.pipes.filter(mock => mock.skipped).length,
+    components.skips = this.mocksGenerated.components.filter(mock => mock.skipped).length;
+    directives.skips = this.mocksGenerated.directives.filter(mock => mock.skipped).length;
+    services.skips = this.mocksGenerated.services.filter(mock => mock.skipped).length;
+    pipes.skips = this.mocksGenerated.pipes.filter(mock => mock.skipped).length;
     components.mocked = this.mocksGenerated.components.length - components.skips;
     directives.mocked = this.mocksGenerated.directives.length - directives.skips;
     services.mocked = this.mocksGenerated.services.length - services.skips;
